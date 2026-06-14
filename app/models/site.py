@@ -38,6 +38,7 @@ class DisposalSite(Base):
     id = Column(Integer, primary_key=True, index=True)
     site_code = Column(String(50), unique=True, index=True, nullable=False)
     name = Column(String(200), nullable=False)
+    enterprise_id = Column(Integer, ForeignKey("enterprises.id"))
     address = Column(String(500))
     district = Column(String(100))
     latitude = Column(Float, nullable=False)
@@ -55,5 +56,6 @@ class DisposalSite(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    enterprise = relationship("Enterprise", back_populates="disposal_sites")
     capacity_records = relationship("CapacityRecord", back_populates="disposal_site")
     weighing_records = relationship("WeighingRecord", back_populates="disposal_site")

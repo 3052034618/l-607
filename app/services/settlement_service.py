@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from ..models import (
     Settlement, SettlementStatus, ConstructionSite, Enterprise,
-    WeighingRecord, TrackRecord, TransportPermit
+    WeighingRecord, TrackRecord, TransportPermit, Vehicle
 )
 from ..config import settings
 from ..utils.id_generator import generate_settlement_number
@@ -61,13 +61,11 @@ def generate_settlement(
     records = (
         db.query(WeighingRecord)
         .join(TransportPermit, WeighingRecord.permit_id == TransportPermit.id)
+        .join(Vehicle, TransportPermit.vehicle_id == Vehicle.id)
         .filter(
             WeighingRecord.status == "completed",
             WeighingRecord.construction_site_id == construction_site_id,
-            TransportPermit.vehicle_id.in_(
-                db.query(__import__("..models.vehicle", fromlist=["Vehicle"]).Vehicle.id)
-                .filter(__import__("..models.vehicle", fromlist=["Vehicle"]).Vehicle.enterprise_id == enterprise_id)
-            ),
+            Vehicle.enterprise_id == enterprise_id,
             WeighingRecord.exit_weight_time >= period_start,
             WeighingRecord.exit_weight_time <= period_end,
         )
@@ -159,7 +157,7 @@ async def confirm_settlement(
 
     await send_notification(
         db,
-        NotificationType.SETTLEMENT_READY,
+        NotificationType.SETTLEMENT_CONFIRMED,
         "对账单已确认",
         f"对账单{settlement.settlement_number}已确认，总金额：{settlement.total_amount}元",
         enterprise_id=settlement.enterprise_id,

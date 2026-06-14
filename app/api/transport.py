@@ -1,17 +1,17 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 import uuid
 
 from ..database import get_db
 from ..models import (
     TransportPlan, PlanStatus, TransportPermit, PermitStatus,
-    ConstructionSite, DisposalSite, User, Vehicle,
+    ConstructionSite, DisposalSite, User, Vehicle, VehicleStatus,
 )
 from ..schemas.permit import (
     TransportPlanCreate, TransportPlanApprove, TransportPlanReject,
-    TransportPlanUpdate, TransportPlanResponse,
+    TransportPlanUpdate, TransportPlanResponse, TransportPlanDetailResponse,
     TransportPermitIssue, TransportPermitRevoke, TransportPermitResponse,
 )
 from ..utils.security import get_current_user, require_roles
@@ -23,7 +23,7 @@ from ..models.notification import NotificationType
 router = APIRouter(prefix="/transport", tags=["渣土外运计划与电子准运证"])
 
 
-@router.post("/plans", response_model=TransportPlanResponse)
+@router.post("/plans", response_model=TransportPlanDetailResponse)
 async def create_transport_plan(
     plan_in: TransportPlanCreate,
     db: Session = Depends(get_db),
@@ -54,7 +54,34 @@ async def create_transport_plan(
     db.add(plan)
     db.commit()
     db.refresh(plan)
-    return plan
+
+    recommended_sites = None
+    if plan_in.auto_recommend:
+        rec_results = recommend_disposal_sites(
+            db,
+            construction_site_id=plan_in.construction_site_id,
+            planned_volume=plan_in.planned_volume,
+            planned_date=plan_in.planned_date,
+            waste_type=plan_in.waste_type,
+        )
+        recommended_sites = rec_results if rec_results else []
+
+    await send_notification(
+        db,
+        NotificationType.PLAN_SUBMITTED,
+        "运输计划已提交",
+        f"运输计划{plan.plan_code}已提交，等待审批",
+        enterprise_id=plan.transport_company_id,
+        related_type="transport_plan",
+        related_id=plan.id,
+    )
+
+    plan_data = TransportPlanResponse.model_validate(plan).model_dump()
+    return TransportPlanDetailResponse(
+        **plan_data,
+        permits=[],
+        recommended_sites=recommended_sites,
+    )
 
 
 @router.get("/plans", response_model=List[TransportPlanResponse])
@@ -85,7 +112,7 @@ def list_transport_plans(
     return query.order_by(TransportPlan.created_at.desc()).offset(skip).limit(limit).all()
 
 
-@router.get("/plans/{plan_id}", response_model=TransportPlanResponse)
+@router.get("/plans/{plan_id}", response_model=TransportPlanDetailResponse)
 def get_transport_plan(
     plan_id: int,
     db: Session = Depends(get_db),
@@ -94,7 +121,12 @@ def get_transport_plan(
     plan = db.query(TransportPlan).filter(TransportPlan.id == plan_id).first()
     if not plan:
         raise HTTPException(status_code=404, detail="运输计划不存在")
-    return plan
+    plan_data = TransportPlanResponse.model_validate(plan).model_dump()
+    return TransportPlanDetailResponse(
+        **plan_data,
+        permits=plan.permits,
+        recommended_sites=None,
+    )
 
 
 @router.put("/plans/{plan_id}", response_model=TransportPlanResponse)
@@ -117,7 +149,7 @@ def update_transport_plan(
     return plan
 
 
-@router.post("/plans/{plan_id}/approve", response_model=TransportPlanResponse)
+@router.post("/plans/{plan_id}/approve", response_model=TransportPlanDetailResponse)
 async def approve_transport_plan(
     plan_id: int,
     approval: TransportPlanApprove,
@@ -134,6 +166,10 @@ async def approve_transport_plan(
     if not ds:
         raise HTTPException(status_code=404, detail="消纳场不存在")
 
+    cs = db.query(ConstructionSite).filter(
+        ConstructionSite.id == plan.construction_site_id
+    ).first()
+
     plan.disposal_site_id = approval.disposal_site_id
     plan.recommended_route = approval.recommended_route or []
     plan.status = PlanStatus.APPROVED
@@ -142,16 +178,78 @@ async def approve_transport_plan(
     db.commit()
     db.refresh(plan)
 
+    issued_permits = []
+    if approval.auto_issue_permits:
+        vehicle_ids = approval.vehicle_ids
+        if not vehicle_ids:
+            vehicles = db.query(Vehicle).filter(
+                Vehicle.enterprise_id == plan.transport_company_id,
+                Vehicle.is_active == True,
+            ).all()
+            vehicle_ids = [v.id for v in vehicles]
+
+        if vehicle_ids:
+            valid_from = plan.start_time if plan.start_time else datetime.utcnow()
+            valid_to = plan.end_time if plan.end_time else valid_from + timedelta(hours=approval.permit_valid_hours)
+
+            for vid in vehicle_ids:
+                vehicle = db.query(Vehicle).filter(Vehicle.id == vid).first()
+                if not vehicle or vehicle.enterprise_id != plan.transport_company_id:
+                    continue
+
+                permit_number = generate_permit_number(cs.site_code if cs else "SITE")
+                qr_data = f"PERMIT:{permit_number}:{valid_from.isoformat()}:{valid_to.isoformat()}"
+
+                permit = TransportPermit(
+                    permit_number=permit_number,
+                    plan_id=plan.id,
+                    vehicle_id=vid,
+                    construction_site_id=plan.construction_site_id,
+                    disposal_site_id=approval.disposal_site_id,
+                    planned_route=approval.recommended_route or [],
+                    valid_from=valid_from,
+                    valid_to=valid_to,
+                    max_volume=vehicle.container_volume,
+                    qr_code_data=qr_data,
+                    status=PermitStatus.ISSUED,
+                )
+                db.add(permit)
+                issued_permits.append(permit)
+
+            if issued_permits:
+                plan.status = PlanStatus.IN_PROGRESS
+
+            db.commit()
+            db.refresh(plan)
+
+            for permit in issued_permits:
+                vehicle = permit.vehicle
+                await send_notification(
+                    db,
+                    NotificationType.PERMIT_ISSUED,
+                    "电子准运证已签发",
+                    f"准运证号：{permit.permit_number}，车辆：{vehicle.plate_number}，有效期至：{permit.valid_to}",
+                    enterprise_id=plan.transport_company_id,
+                    related_type="permit",
+                    related_id=permit.id,
+                )
+
     await send_notification(
         db,
         NotificationType.PLAN_APPROVED,
         "运输计划已批准",
-        f"您的运输计划{plan.plan_code}已批准，推荐消纳场：{ds.name}",
+        f"您的运输计划{plan.plan_code}已批准，推荐消纳场：{ds.name}，准运证{len(issued_permits)}张",
         enterprise_id=plan.transport_company_id,
         related_type="transport_plan",
         related_id=plan.id,
     )
-    return plan
+
+    plan_data = TransportPlanResponse.model_validate(plan).model_dump()
+    return TransportPlanDetailResponse(
+        **plan_data,
+        permits=plan.permits,
+        recommended_sites=None,
+    )
 
 
 @router.post("/plans/{plan_id}/reject", response_model=TransportPlanResponse)

@@ -7,6 +7,7 @@ from ..database import Base
 
 
 class NotificationType(str, enum.Enum):
+    PLAN_SUBMITTED = "plan_submitted"
     PLAN_APPROVED = "plan_approved"
     PLAN_REJECTED = "plan_rejected"
     PERMIT_ISSUED = "permit_issued"
@@ -15,7 +16,9 @@ class NotificationType(str, enum.Enum):
     WORK_ORDER_COMPLETED = "work_order_completed"
     PENALTY_PENDING = "penalty_pending"
     PENALTY_APPROVED = "penalty_approved"
+    PENALTY_PUBLISHED = "penalty_published"
     SETTLEMENT_READY = "settlement_ready"
+    SETTLEMENT_CONFIRMED = "settlement_confirmed"
     CAPACITY_ALERT = "capacity_alert"
     REPORT_READY = "report_ready"
     SYSTEM = "system"

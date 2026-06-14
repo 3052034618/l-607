@@ -108,11 +108,40 @@ def create_violation(
         credit_deduction=deduction,
     )
     db.add(order)
+    db.flush()
+
+    try:
+        order = auto_assign_work_order(db, order)
+    except Exception:
+        pass
+
     db.commit()
     db.refresh(violation)
     db.refresh(order)
 
     return violation
+
+
+async def notify_work_order_assigned(db: Session, order: WorkOrder):
+    if not order.team_id:
+        return
+    team = db.query(EnforcementTeam).filter(EnforcementTeam.id == order.team_id).first()
+    if not team:
+        return
+    members = db.query(User).filter(
+        User.enforcement_team_id == order.team_id,
+        User.is_active == True,
+    ).all()
+    for member in members:
+        await send_notification(
+            db,
+            NotificationType.WORK_ORDER_ASSIGNED,
+            "新工单已分配",
+            f"您收到新工单：{order.title}，优先级：{order.priority.value}",
+            recipient_id=member.id,
+            related_type="work_order",
+            related_id=order.id,
+        )
 
 
 async def check_overload(db: Session, weighing: WeighingRecord) -> Optional[Violation]:
@@ -212,6 +241,18 @@ async def check_route_deviation(db: Session, track: TrackRecord) -> Optional[Vio
             location_lng=track.longitude,
             distance=deviation,
         )
+        from ..models.vehicle import Vehicle
+        vehicle = db.query(Vehicle).filter(Vehicle.id == track.vehicle_id).first()
+        if vehicle and vehicle.enterprise_id:
+            await send_notification(
+                db,
+                NotificationType.VIOLATION_ALERT,
+                "路线偏离告警",
+                violation.description,
+                enterprise_id=vehicle.enterprise_id,
+                related_type="violation",
+                related_id=violation.id,
+            )
         return violation
     return None
 

@@ -67,6 +67,23 @@ def init_database():
             db.flush()
             print("创建示例运输企业")
 
+        disposal_ent = db.query(Enterprise).filter(
+            Enterprise.name == "示例消纳场运营有限公司"
+        ).first()
+        if not disposal_ent:
+            disposal_ent = Enterprise(
+                name="示例消纳场运营有限公司",
+                type=EnterpriseType.DISPOSAL,
+                unified_social_credit_code="91110000MA01DISP01",
+                legal_person="杨场主",
+                contact_person="孙场长",
+                contact_phone="13899999999",
+                address="北京市朝阳区东坝乡",
+            )
+            db.add(disposal_ent)
+            db.flush()
+            print("创建示例消纳场企业")
+
         construction_user = db.query(User).filter(User.username == "construction").first()
         if not construction_user:
             construction_user = User(
@@ -132,6 +149,19 @@ def init_database():
             db.add(enforcement_user)
             print("创建执法队员账号: enforcement / test123")
 
+        disposal_user = db.query(User).filter(User.username == "disposal").first()
+        if not disposal_user:
+            disposal_user = User(
+                username="disposal",
+                password_hash=hash_password("test123"),
+                real_name="消纳场账号",
+                phone="13899999999",
+                role=UserRole.DISPOSAL,
+                enterprise_id=disposal_ent.id,
+            )
+            db.add(disposal_user)
+            print("创建消纳场账号: disposal / test123")
+
         site = db.query(ConstructionSite).filter(ConstructionSite.site_code == "CS001").first()
         if not site:
             site = ConstructionSite(
@@ -156,6 +186,7 @@ def init_database():
             disposal1 = DisposalSite(
                 site_code="DS001",
                 name="朝阳区东坝消纳场",
+                enterprise_id=disposal_ent.id,
                 address="北京市朝阳区东坝乡",
                 district="朝阳区",
                 latitude=39.9658,
@@ -175,6 +206,7 @@ def init_database():
             disposal2 = DisposalSite(
                 site_code="DS002",
                 name="通州宋庄消纳场",
+                enterprise_id=disposal_ent.id,
                 address="北京市通州区宋庄镇",
                 district="通州区",
                 latitude=39.9810,
@@ -226,6 +258,7 @@ def init_database():
         print("  管理员:   admin / admin123")
         print("  施工单位: construction / test123")
         print("  运输企业: transport / test123")
+        print("  消纳场:   disposal / test123")
         print("  城管:     city / test123")
         print("  执法队:   enforcement / test123")
 

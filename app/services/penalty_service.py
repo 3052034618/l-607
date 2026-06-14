@@ -207,9 +207,9 @@ async def publish_penalty(db: Session, penalty_id: int) -> Penalty:
 
     await send_notification(
         db,
-        NotificationType.PENALTY_APPROVED,
-        "电子罚单推送",
-        f"您有新的电子罚单已发布：{penalty.ticket_number}，请及时处理",
+        NotificationType.PENALTY_PUBLISHED,
+        "电子罚单已发布",
+        f"您有新的电子罚单：{penalty.ticket_number}，罚款：{penalty.fine_amount}元，请及时处理",
         enterprise_id=penalty.enterprise_id,
         related_type="penalty",
         related_id=penalty.id,

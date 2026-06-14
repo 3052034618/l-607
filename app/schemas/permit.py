@@ -2,6 +2,7 @@ from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from ..models import PlanStatus, PermitStatus
+from .site import DisposalSiteRecommendation
 
 
 class TransportPlanCreate(BaseModel):
@@ -13,11 +14,15 @@ class TransportPlanCreate(BaseModel):
     planned_date: datetime
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
+    auto_recommend: bool = True
 
 
 class TransportPlanApprove(BaseModel):
     disposal_site_id: int
     recommended_route: Optional[List[Dict[str, Any]]] = None
+    auto_issue_permits: bool = False
+    vehicle_ids: Optional[List[int]] = None
+    permit_valid_hours: float = 12.0
 
 
 class TransportPlanReject(BaseModel):
@@ -46,6 +51,11 @@ class TransportPlanResponse(BaseModel):
     approved_at: Optional[datetime] = None
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)
+
+
+class TransportPlanDetailResponse(TransportPlanResponse):
+    permits: List["TransportPermitResponse"] = []
+    recommended_sites: Optional[List[DisposalSiteRecommendation]] = None
 
 
 class TransportPermitIssue(BaseModel):
@@ -78,3 +88,6 @@ class TransportPermitResponse(BaseModel):
     used_at: Optional[datetime] = None
     revoked_reason: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
+
+
+TransportPlanDetailResponse.model_rebuild()

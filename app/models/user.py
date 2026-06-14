@@ -13,6 +13,7 @@ class UserRole(str, enum.Enum):
     CITY_MANAGEMENT = "city_management"
     ENFORCEMENT_TEAM = "enforcement_team"
     SITE_MANAGER = "site_manager"
+    DISPOSAL = "disposal"
 
 
 class EnterpriseType(str, enum.Enum):
@@ -63,6 +64,7 @@ class Enterprise(Base):
 
     users = relationship("User", back_populates="enterprise")
     construction_sites = relationship("ConstructionSite", back_populates="enterprise")
+    disposal_sites = relationship("DisposalSite", back_populates="enterprise")
     vehicles = relationship("Vehicle", back_populates="enterprise")
     transport_plans = relationship("TransportPlan", back_populates="transport_company")
     settlements = relationship("Settlement", back_populates="enterprise")

@@ -114,6 +114,8 @@ def list_disposal_sites(
         query = query.filter(DisposalSite.district == district)
     if has_capacity:
         query = query.filter(DisposalSite.remaining_capacity > 0)
+    if current_user.role == "disposal" and current_user.enterprise_id:
+        query = query.filter(DisposalSite.enterprise_id == current_user.enterprise_id)
     return query.offset(skip).limit(limit).all()
 
 
@@ -154,6 +156,14 @@ async def report_capacity(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("admin", "city_management", "disposal")),
 ):
+    site = db.query(DisposalSite).filter(DisposalSite.id == site_id).first()
+    if not site:
+        raise HTTPException(status_code=404, detail="消纳场不存在")
+
+    if current_user.role == "disposal" and current_user.enterprise_id:
+        if site.enterprise_id != current_user.enterprise_id:
+            raise HTTPException(status_code=403, detail="无权上报此消纳场容量")
+
     try:
         record = report_disposal_capacity(
             db, site_id, report.remaining_capacity, report.daily_accepted, report.source
@@ -170,6 +180,7 @@ async def report_capacity(
             f"消纳场{site.name}剩余容量不足10%，请及时调整运输计划",
             related_type="disposal_site",
             related_id=site_id,
+            enterprise_id=site.enterprise_id,
         )
     return record
 

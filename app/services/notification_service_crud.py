@@ -43,15 +43,27 @@ async def send_notification(
     enterprise_id: Optional[int] = None,
     related_type: Optional[str] = None,
     related_id: Optional[int] = None,
-) -> Notification:
-    notification = create_notification(
-        db, type, title, content, sender_id, recipient_id, enterprise_id, related_type, related_id
-    )
+) -> List[Notification]:
     if recipient_id:
+        notification = create_notification(
+            db, type, title, content, sender_id, recipient_id, enterprise_id, related_type, related_id
+        )
         await notification_manager.push_to_user(db, recipient_id, notification)
+        return [notification]
     elif enterprise_id:
-        await notification_manager.push_to_enterprise(db, enterprise_id, notification)
-    return notification
+        users = db.query(User).filter(
+            User.enterprise_id == enterprise_id,
+            User.is_active == True,
+        ).all()
+        notifications = []
+        for user in users:
+            n = create_notification(
+                db, type, title, content, sender_id, user.id, enterprise_id, related_type, related_id
+            )
+            notifications.append(n)
+        await notification_manager.push_to_enterprise(db, enterprise_id, notifications[0] if notifications else None)
+        return notifications
+    return []
 
 
 def get_user_notifications(

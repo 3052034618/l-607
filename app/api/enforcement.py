@@ -103,8 +103,6 @@ def list_work_orders(
         query = query.filter(WorkOrder.team_id == current_user.enforcement_team_id)
     if assignee_id:
         query = query.filter(WorkOrder.assignee_id == assignee_id)
-    elif current_user.role == "enforcement_team":
-        query = query.filter(WorkOrder.assignee_id == current_user.id)
     return query.order_by(WorkOrder.created_at.desc()).offset(skip).limit(limit).all()
 
 
